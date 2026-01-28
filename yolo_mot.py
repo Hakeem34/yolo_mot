@@ -8,13 +8,14 @@ from ultralytics import YOLO
 
 g_target_file = ''
 g_target_dir = ''
-g_tracker = ''
+g_tracker = 'bytetrack.yaml'
+g_save = False
 g_model = None
 
 
 def object_detect_png_file(file_path):
     # 画像ファイルに対して物体検知を実行
-    results = g_model.predict(source=file_path, show=True, conf=0.5, save=True)
+    results = g_model.predict(source=file_path, show=True, conf=0.5, save=g_save)
     boxes = results[0].boxes
     for box in boxes:
         print(f'class_id: {int(box.cls):02}, confidence: {float(box.conf)*100:.1f}%, xyxy: {box.xyxy}')
@@ -33,33 +34,26 @@ def object_track_png_file(file_path, tracker, persist, save, show):
 
     return results
 
-def object_track_png_file_bytetrack(file_path):
-    # 画像ファイルに対して物体検知＆追跡を実行
-    results = g_model.track(source=file_path, show=False, conf=0.5, persist=True, save=True, tracker="bytetrack.yaml")
-    boxes = results[0].boxes
-    for box in boxes:
-        if box.id is not None:
-            print(f'[ByteTrack]class_id: {int(box.cls):02}, confidence: {float(box.conf)*100:.1f}%, xyxy: {box.xyxy}, id: {int(box.id):03}')
-        else:
-            print(f'[ByteTrack]class_id: {int(box.cls):02}, confidence: {float(box.conf)*100:.1f}%, xyxy: {box.xyxy}, id: None')
-
-    return results
-
-def object_track_png_file_botsort(file_path):
-    # 画像ファイルに対して物体検知＆追跡を実行
-    results = g_model.track(source=file_path, show=False, conf=0.5, persist=True, save=True, tracker="botsort.yaml")
-    boxes = results[0].boxes
-    for box in boxes:
-        if box.id is not None:
-            print(f'[Bot-Sort]class_id: {int(box.cls):02}, confidence: {float(box.conf)*100:.1f}%, xyxy: {box.xyxy}, id: {int(box.id):03}')
-        else:
-            print(f'[Bot-Sort]class_id: {int(box.cls):02}, confidence: {float(box.conf)*100:.1f}%, xyxy: {box.xyxy}, id: None')
-
-    return results
-
-def track_mp4_file(file_path):
+def predict_mp4_file(file_path):
     # 動画ファイルに対して物体検知＆追跡を実行
-    results = g_model.track(source=file_path, show=True, conf=0.5, persist=True, save=True, tracker="bytetrack.yaml")
+    results = g_model.predict(source=file_path, show=False, conf=0.5, save=g_save)
+    for index, result in enumerate(results):
+        boxes = result.boxes
+        for box in boxes:
+            print(f'result[{index:04}]: class_id: {int(box.cls):02}, confidence: {float(box.conf)*100:.1f}%, xyxy: {box.xyxy}') 
+
+    return results
+
+def track_mp4_file(file_path,tracker):
+    # 動画ファイルに対して物体検知＆追跡を実行
+    results = g_model.track(source=file_path, show=False, conf=0.5, persist=True, save=g_save, tracker=tracker)
+    for index, result in enumerate(results):
+        boxes = result.boxes
+        for box in boxes:
+            if box.id is not None:
+                print(f'result[{index:04}]: class_id: {int(box.cls):02}, confidence: {float(box.conf)*100:.1f}%, xyxy: {box.xyxy}, id: {int(box.id):03}')
+            else:
+                print(f'result[{index:04}]: class_id: {int(box.cls):02}, confidence: {float(box.conf)*100:.1f}%, xyxy: {box.xyxy}, id: None')
 
     return results
 
@@ -76,13 +70,9 @@ def handle_target_file(target_file):
     global g_tracker
     print(f'handle_target_file: {target_file}') 
     if (target_file.endswith('.mp4')):
-        track_mp4_file(target_file)
+        track_mp4_file(target_file, tracker=g_tracker)
     elif (target_file.endswith('.png')):
 #       object_detect_png_file(target_file)
-#       object_track_png_file_bytetrack(target_file)
-#       object_track_png_file_botsort(target_file)
-#       object_track_png_file(target_file, tracker="bytetrack.yaml", persist=True, save=False, show=False)
-#       object_track_png_file(target_file, tracker="botsort.yaml", persist=True, save=False, show=False)
         object_track_png_file(target_file, tracker=g_tracker, persist=True, save=False, show=False)
 
     return
@@ -92,6 +82,7 @@ def check_command_line_option():
     global g_target_file
     global g_target_dir
     global g_tracker
+    global g_save
 
     # Parse arguments.
     args = sys.argv[1:]
@@ -106,6 +97,8 @@ def check_command_line_option():
             g_target_dir = arg
         elif (arg.startswith('--tracker=')):
             g_tracker = arg.split('=')[1]   
+        elif (arg.startswith('--save')):
+            g_save = True
         else:
             print(f'invalid arg : {arg}')
 
