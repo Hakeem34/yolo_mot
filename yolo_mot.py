@@ -8,6 +8,7 @@ import csv
 import openpyxl
 
 from ultralytics import YOLO
+import byte_track
 
 @dataclass 
 class ObjectInfo:
@@ -35,6 +36,7 @@ g_skip_frames = 0
 g_frame_count = 0
 g_score_thresh = 0.25
 g_object_list = []
+g_external_tracker = None
 
 def make_sub_dir(dir_path, sub_dir_name):
     # サブディレクトリを作成
@@ -59,6 +61,56 @@ def mp4_to_pnmg(input_mp4_file):
 
     return output_dir
 
+def object_detect_png_file_with_byte_track(file_path):
+    # 画像ファイルに対して物体検知＆ByteTrack追跡を実行
+    global g_frame_count
+
+    if g_frame_count % (g_skip_frames + 1) != 0:
+        g_frame_count += 1
+        return None
+
+    # 物体検知を実行
+    results = g_model.predict(source=file_path, show=False, conf=g_score_thresh, save=g_save)
+    boxes = results[0].boxes
+
+    # トラッカーの初期化
+    byte_tracker = g_external_tracker
+
+    detections = []
+    for box in boxes:
+        x1, y1, x2, y2 = box.xyxy[0].tolist()
+        rect = byte_track.Rect(x1, y1, x2 - x1, y2 - y1)
+        score = float(box.conf)
+        class_id = int(box.cls)
+        detection = byte_track.Object(rect=rect, label=class_id, prob=score)
+        detections.append(detection)
+
+    # ByteTrackで追跡を実行
+    tracks = byte_tracker.update(detections)
+
+    for track in tracks:
+        rect = track.get_rect()
+        track_id = track.get_track_id()
+#       print(f"Track ID: {track.get_track_id()}")
+#       print(f"State: {track.get_state()}")
+#       print(f"Score: {track.get_score()}")
+        x1, y1, w, h = rect.x(), rect.y(), rect.width(), rect.height()
+        x2 = x1 + w
+        y2 = y1 + h
+
+        print(f'class_id: {class_id:02}, confidence: {score*100:.1f}%, xyxy: [{x1}, {y1}, {x2}, {y2}], id: {track_id:03}')
+        obj_info = ObjectInfo(
+            FrameIndex=g_frame_count,
+            ClassId=class_id,
+            Score=score,
+            Xyxy=[x1, y1, x2, y2],
+            TrackId=track_id
+        )
+        g_object_list.append(obj_info)
+
+    g_frame_count += 1
+    return results
+
 def object_detect_png_file(file_path):
     # 画像ファイルに対して物体検知を実行
     global g_frame_count
@@ -67,7 +119,7 @@ def object_detect_png_file(file_path):
         g_frame_count += 1
         return None
 
-    results = g_model.predict(source=file_path, show=True, conf=g_score_thresh, save=g_save)
+    results = g_model.predict(source=file_path, show=False, conf=g_score_thresh, save=g_save)
     boxes = results[0].boxes
     for box in boxes:
         print(f'class_id: {int(box.cls):02}, confidence: {float(box.conf)*100:.1f}%, xyxy: {box.xyxy}')
@@ -168,7 +220,7 @@ def handle_target_dir(target_dir):
 def handle_target_file(target_file):
     global g_tracker
 
-    print(f'handle_target_file: {target_file}') 
+    print(f'handle_target_file: {target_file} tracker: {g_tracker}') 
     if (target_file.endswith('.mp4')):
         if (g_out_png):
             # mp4ファイルをpng連番ファイルに変換
@@ -183,6 +235,8 @@ def handle_target_file(target_file):
     elif (target_file.endswith('.png')):
         if (g_tracker == ''):
             object_detect_png_file(target_file)
+        elif (g_tracker == 'byte_track'):
+            object_detect_png_file_with_byte_track(target_file)
         else:
             object_track_png_file(target_file, tracker=g_tracker)
 
@@ -276,11 +330,22 @@ def output_results_to_excel(output_excel_file):
 def main():
     global g_model
     global g_target_file
+    global g_external_tracker
 
     check_command_line_option()
 
     # YOLOv11のモデルをロード
     g_model = YOLO('yolo11m.pt')
+
+    if g_tracker == 'byte_track':
+        g_external_tracker = byte_track.BYTETracker(
+#           frame_rate=30,
+#           track_buffer=30,
+#           track_thresh=0.5,
+#           high_thresh=0.6,
+#           match_thresh=0.8
+        )
+
 
     if (g_target_file != ''):
         handle_target_file(g_target_file)
